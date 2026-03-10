@@ -1,7 +1,7 @@
 # Environment: dev
 # Usage: tofu plan -var-file=environments/dev.tfvars
 
-subscription_id = "00000000-0000-0000-0000-000000000000" # REPLACE with your dev subscription ID
+subscription_id = "babf7774-ca75-4b69-83d0-18d124676548"
 
 location      = "westeurope"
 environment   = "dev"
