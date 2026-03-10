@@ -1,0 +1,77 @@
+name: Apply
+
+on:
+  push:
+    branches:
+      - dev
+      - staging
+      - production
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TOFU_VERSION: "1.8.0"
+
+jobs:
+  detect-environment:
+    name: Detect Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.detect.outputs.environment }}
+    steps:
+      - name: Detect environment from branch
+        id: detect
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+          case "$BRANCH" in
+            dev)         echo "environment=dev" >> "$GITHUB_OUTPUT" ;;
+            staging)     echo "environment=staging" >> "$GITHUB_OUTPUT" ;;
+            production)  echo "environment=production" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "Error: unexpected branch '$BRANCH'"
+              exit 1
+              ;;
+          esac
+
+  apply:
+    name: Apply (${{ needs.detect-environment.outputs.environment }})
+    runs-on: ubuntu-latest
+    needs: detect-environment
+    environment: ${{ needs.detect-environment.outputs.environment }}
+    concurrency:
+      group: apply-${{ needs.detect-environment.outputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: OpenTofu Init
+        run: |
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          tofu init -backend-config="backend-config/${ENV}.hcl" -input=false
+
+      - name: OpenTofu Plan
+        run: |
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          tofu plan \
+            -var-file="environments/${ENV}.tfvars" \
+            -no-color \
+            -input=false \
+            -out=tfplan
+
+      - name: OpenTofu Apply
+        run: tofu apply -auto-approve -input=false tfplan

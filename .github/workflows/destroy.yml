@@ -1,0 +1,132 @@
+name: Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment to destroy"
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+      confirm:
+        description: "Type 'DESTROY' to confirm destruction"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TOFU_VERSION: "1.8.0"
+
+jobs:
+  validate-confirmation:
+    name: Validate Confirmation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation
+        if: inputs.confirm != 'DESTROY'
+        run: |
+          echo "Error: confirmation must be exactly 'DESTROY'"
+          echo "You entered: '${{ inputs.confirm }}'"
+          exit 1
+
+  plan-destroy:
+    name: Plan Destroy (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    needs: validate-confirmation
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: OpenTofu Init
+        run: |
+          tofu init \
+            -backend-config="backend-config/${{ inputs.environment }}.hcl" \
+            -input=false
+
+      - name: OpenTofu Plan Destroy
+        run: |
+          tofu plan \
+            -destroy \
+            -var-file="environments/${{ inputs.environment }}.tfvars" \
+            -no-color \
+            -input=false \
+            -out=tfplan 2>&1 | tee destroy_plan.txt
+
+      - name: Upload Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: destroy-plan
+          path: |
+            tfplan
+            destroy_plan.txt
+
+      - name: Post Destroy Summary
+        run: |
+          echo "## ⚠️ Destruction Plan for \`${{ inputs.environment }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "The following resources will be **permanently destroyed**:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat destroy_plan.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  execute-destroy:
+    name: Execute Destroy (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    needs: plan-destroy
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: OpenTofu Init
+        run: |
+          tofu init \
+            -backend-config="backend-config/${{ inputs.environment }}.hcl" \
+            -input=false
+
+      - name: Download Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: destroy-plan
+
+      - name: OpenTofu Destroy
+        run: tofu apply -auto-approve -input=false tfplan
+
+      - name: Post Destruction Summary
+        run: |
+          echo "## ✅ Destruction Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Environment \`${{ inputs.environment }}\` has been destroyed." >> "$GITHUB_STEP_SUMMARY"
+          echo "State file has been updated to reflect the empty state." >> "$GITHUB_STEP_SUMMARY"

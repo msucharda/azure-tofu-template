@@ -1,0 +1,12 @@
+# Trivy false-positive suppressions for this project.
+#
+# Add entries here when trivy flags a finding that is a known
+# false positive for this codebase. Each entry should include:
+#   - The Trivy rule ID (e.g., AVD-AZU-0042)
+#   - A comment explaining why the suppression is justified
+#   - A link to the relevant issue or documentation
+#
+# Format: one rule ID per line, comments start with #
+#
+# Example:
+# AVD-AZU-0042  # False positive: storage account is internal-only

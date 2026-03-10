@@ -1,0 +1,171 @@
+name: PR Validate
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - staging
+      - production
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+env:
+  TOFU_VERSION: "1.8.0"
+
+jobs:
+  detect-environment:
+    name: Detect Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.detect.outputs.environment }}
+    steps:
+      - name: Detect target environment from branch
+        id: detect
+        run: |
+          BRANCH="${{ github.base_ref }}"
+          case "$BRANCH" in
+            dev)         echo "environment=dev" >> "$GITHUB_OUTPUT" ;;
+            staging)     echo "environment=staging" >> "$GITHUB_OUTPUT" ;;
+            production)  echo "environment=production" >> "$GITHUB_OUTPUT" ;;
+            *)           echo "environment=dev" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    needs: detect-environment
+    environment: ${{ needs.detect-environment.outputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: OpenTofu Format Check
+        id: fmt
+        run: tofu fmt -check -recursive -diff
+        continue-on-error: true
+
+      - name: OpenTofu Init
+        id: init
+        run: |
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          tofu init -backend-config="backend-config/${ENV}.hcl" -input=false
+
+      - name: OpenTofu Validate
+        id: validate
+        run: tofu validate -no-color
+
+      - name: OpenTofu Plan
+        id: plan
+        run: |
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          tofu plan \
+            -var-file="environments/${ENV}.tfvars" \
+            -no-color \
+            -input=false \
+            -out=tfplan 2>&1 | tee plan_output.txt
+        continue-on-error: true
+
+      - name: Post PR Comment
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        env:
+          FMT_OUTCOME: ${{ steps.fmt.outcome }}
+          VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
+          PLAN_OUTCOME: ${{ steps.plan.outcome }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const env = process.env;
+            const planOutput = fs.existsSync('plan_output.txt')
+              ? fs.readFileSync('plan_output.txt', 'utf8').slice(-60000)
+              : 'No plan output available';
+
+            const fmtIcon = env.FMT_OUTCOME === 'success' ? '✅' : '❌';
+            const valIcon = env.VALIDATE_OUTCOME === 'success' ? '✅' : '❌';
+            const planIcon = env.PLAN_OUTCOME === 'success' ? '✅' : '❌';
+
+            const body = `### OpenTofu Validation Results
+
+            | Check | Status |
+            |-------|--------|
+            | Format | ${fmtIcon} ${env.FMT_OUTCOME} |
+            | Validate | ${valIcon} ${env.VALIDATE_OUTCOME} |
+            | Plan | ${planIcon} ${env.PLAN_OUTCOME} |
+
+            <details><summary>Plan Output</summary>
+
+            \`\`\`
+            ${planOutput}
+            \`\`\`
+
+            </details>
+
+            *Environment: \`${{ needs.detect-environment.outputs.environment }}\`*
+            *Pusher: @${{ github.actor }}*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: detect-environment
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+
+      - name: Init TFLint
+        run: tflint --init
+
+      - name: Run TFLint
+        run: tflint --recursive --format compact
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: detect-environment
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: terraform
+          quiet: true
+          soft_fail: false
+
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: 1
+          trivyignores: .trivyignore

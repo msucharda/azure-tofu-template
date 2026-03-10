@@ -1,50 +1,125 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+  Sync Impact Report
+  ==================
+  Version change: N/A (template) → 1.0.0
+  Modified principles: None (initial creation)
+  Added principles:
+    - I. Azure Verified Modules First
+    - II. Security by Default (NON-NEGOTIABLE)
+    - III. Branch-Per-Environment with GitFlow
+    - IV. One Statefile Per Environment
+    - V. Full Lifecycle Coverage
+    - VI. AI-Assisted Development with Copilot CLI
+  Added sections:
+    - Technology Stack & Standards
+    - PR Workflow & Quality Gates
+  Removed sections: None
+  Templates requiring updates:
+    ✅ .specify/templates/plan-template.md — no conflicts
+    ✅ .specify/templates/spec-template.md — no conflicts
+    ✅ .specify/templates/tasks-template.md — no conflicts
+    ✅ .specify/templates/checklist-template.md — no conflicts
+  Follow-up TODOs: None
+-->
+
+# Azure OpenTofu Template Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Azure Verified Modules First
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+All Azure resources MUST be provisioned using Azure Verified Modules
+(AVM). Raw `azurerm`/`azapi` resource blocks are only permitted when
+no AVM module exists for the required resource. Any raw resource usage
+MUST include a comment justifying why AVM was not used and a link to
+the AVM tracking issue. This ensures consistency, security defaults,
+and maintainability across all subscriptions.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. Security by Default (NON-NEGOTIABLE)
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+No hardcoded credentials, secrets, or tokens anywhere in the codebase.
+All secrets MUST be managed through Azure Key Vault or
+environment-scoped variables. Least-privilege RBAC assignments are
+mandatory — no Owner or broad Contributor roles unless explicitly
+justified and documented. Service principals and managed identities
+MUST be scoped to the minimum required permissions. State files MUST
+be stored in encrypted Azure Storage with access restricted via RBAC,
+never SAS tokens.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### III. Branch-Per-Environment with GitFlow
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+Each environment (dev, staging, production) has a dedicated long-lived
+branch. All changes follow a GitFlow PR-driven workflow: feature
+branches are created from the target environment branch, changes are
+submitted via pull request, reviewed, approved, and merged. Direct
+pushes to environment branches are prohibited. PRs MUST pass
+validation (`tofu plan`, linting, security scan) before merge.
+Hotfixes follow the same PR process with expedited review.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### IV. One Statefile Per Environment
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+Each environment MUST have exactly one OpenTofu state file, stored in
+a dedicated Azure Storage Account container per environment. State
+locking MUST be enabled via Azure Blob lease. State files are never
+shared across environments. Backend configuration is parameterized per
+environment branch. State recovery procedures MUST exist and be
+documented — including import workflows, `state mv` operations, and
+backup/restore from versioned blob storage.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### V. Full Lifecycle Coverage
+
+The project MUST support all stages of the OpenTofu infrastructure
+lifecycle: creation (initial provisioning of a new subscription's
+resources), updates (incremental changes via plan/apply), destruction
+(controlled teardown with dependency-aware ordering and confirmation
+gates), and state recovery (documented runbooks for re-importing
+resources, resolving state drift, and restoring from blob snapshots).
+Each lifecycle stage MUST have corresponding GitHub Actions workflows
+or documented manual procedures.
+
+### VI. AI-Assisted Development with Copilot CLI
+
+Developers interact with this project primarily through GitHub Copilot
+CLI and speckit AI agents. All specifications, plans, tasks, and
+implementations are driven through the speckit workflow (specify → plan
+→ tasks → implement). AI agents MUST follow the constitution
+principles. Copilot CLI is the recommended interface for `tofu plan`,
+`tofu apply`, code generation, and troubleshooting. Human review of
+AI-generated changes remains mandatory via the PR workflow.
+
+## Technology Stack & Standards
+
+- OpenTofu (not HashiCorp Terraform) is the IaC runtime
+- Azure is the sole cloud provider target
+- HCL is the configuration language; no JSON configurations
+- Module pinning is mandatory — all module sources MUST use version
+  constraints
+- All resources MUST be tagged with at minimum: `managed-by`
+  (`opentofu`)
+- Naming conventions follow Azure Cloud Adoption Framework (CAF)
+  guidance
+
+## PR Workflow & Quality Gates
+
+- All changes require a pull request — no exceptions
+- PRs MUST include: `tofu fmt` check, `tofu validate`, `tofu plan`
+  output, `tflint` scan, and `checkov`/`trivy` security scan
+- Minimum one approval required for dev/staging, two approvals for
+  production
+- Plan output MUST be posted as a PR comment for review
+- Apply runs only after merge to the target environment branch
+- Destroy operations require explicit manual approval in the GitHub
+  Actions workflow
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+- This constitution supersedes all ad-hoc practices and tribal
+  knowledge
+- Amendments require a PR with documented rationale and at least two
+  approvals
+- All PRs and code reviews MUST verify compliance with these
+  principles
+- Complexity deviations MUST be justified in the plan's Complexity
+  Tracking table
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-03-10 | **Last Amended**: 2026-03-10
